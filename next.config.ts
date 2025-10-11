@@ -12,4 +12,9 @@ const nextConfig = {
     },
 }
 
-module.exports = nextConfig
+const nextConfig: NextConfig = {
+  /* config options here */
+  output: 'standalone', // Enable standalone output for Docker
+};
+
+export default nextConfig;

@@ -1,0 +1,24 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Deploy to VPS
+        run: |
+          cd /srv/yggdrasil/yggdrasil
+          sudo git pull origin main
+          cd /srv/yggdrasil/production
+          sudo docker-compose down
+          sudo docker-compose build --no-cache yggdrasil
+          sudo docker-compose up -d
+
+      - name: Check deployment status
+        run: |
+          cd /srv/yggdrasil/production
+          sudo docker-compose ps

@@ -1,0 +1,191 @@
+LOCAL_SETUP.txt
+
+Purpose
+- Quick instructions to set up a local development environment for the yggdrasil app.
+- Use this to hand off to another Copilot chat or a developer.
+
+Architecture Overview
+═══════════════════════════════════════════════════════════════════════════════
+
+Local dev machine (~/projects/yggdrasil)
+ ├─ Clone repo from GitHub
+ │  ├─ .env.local                     <-- local dev secrets (NOT in git)
+ │  ├─ docker-compose.dev.yml         <-- local Docker setup (in git)
+ │  └─ repo files (src/, package.json, Dockerfile, etc.)
+ └─ Run: docker-compose -f docker-compose.dev.yml up OR npm run dev
+       ↓ Work on dev branch, push to GitHub
+
+GitHub (repo: zoom26042604/yggdrasil)
+ ├─ Branches: dev (development), main (production)
+ └─ Workflow: .github/workflows/deploy.yml
+       ↓ Triggered on push to main branch
+       ↓ Runs on self-hosted runner on VPS
+
+VPS (Debian, /srv/yggdrasil)
+ ├─ /srv/yggdrasil/yggdrasil          <-- git repo (main checked out)
+ │  └─ .github/workflows/deploy.yml   <-- GitHub Actions workflow
+ ├─ /srv/yggdrasil/production         <-- production runtime (NOT in git)
+ │  ├─ docker-compose.yml             <-- Traefik + services
+ │  ├─ .env                           <-- production secrets (NEVER commit)
+ │  ├─ letsencrypt/                   <-- SSL certificates
+ │  └─ prometheus/                    <-- monitoring data
+ ├─ /home/github-runner/actions-runner <-- self-hosted GitHub Actions runner
+ └─ /srv/yggdrasil/deploy.sh          <-- deploy script called by workflow
+       ↓ Builds Docker image from ../yggdrasil
+       ↓ Runs docker-compose up in production/
+       ↓ Traefik routes HTTPS traffic to yggdrasil container
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Prerequisites (local machine)
+- Git installed
+- Docker & docker-compose (or Node 20 + npm/yarn if not using Docker)
+- A GitHub account with repo access: https://github.com/zoom26042604/yggdrasil.git
+
+Local Development Setup Steps
+
+1) Clone the repo
+mkdir -p ~/projects
+cd ~/projects
+git clone https://github.com/zoom26042604/yggdrasil.git
+cd yggdrasil
+git checkout -b dev
+
+2) Create local environment file
+# The repo includes .env.example as a template
+# Create your local .env.local file (NOT committed to git)
+cp .env.example .env.local
+
+# Edit .env.local with local dev values:
+# NODE_ENV=development
+# NEXT_PUBLIC_API_URL=http://localhost:3000/api
+# Add any other local-only variables here
+
+3) Start local development
+
+Option A - With Docker (recommended):
+docker-compose -f docker-compose.dev.yml up --build
+# App runs at http://localhost:3000
+# Hot-reload enabled for code changes
+
+Option B - Without Docker:
+npm install
+npm run dev
+# App runs at http://localhost:3000
+
+4) Development Workflow
+
+# Always work on the dev branch
+git checkout dev
+
+# Make your changes, test locally
+# Then commit and push
+git add .
+git commit -m "feat: description of your changes"
+git push origin dev
+
+# You can also create feature branches from dev:
+git checkout -b feature/my-feature
+# ... make changes ...
+git push origin feature/my-feature
+# Then open a PR to merge into dev
+
+5) Deploy to Production (when ready)
+
+# Merge dev into main (triggers deployment)
+git checkout main
+git merge dev
+git push origin main
+
+# ⚠️ Pushing to main triggers GitHub Actions workflow
+# The self-hosted runner on the VPS will:
+# 1. Pull latest changes to /srv/yggdrasil/yggdrasil
+# 2. Build new Docker image
+# 3. Deploy to /srv/yggdrasil/production with docker-compose
+# 4. Traefik handles SSL/TLS and routes traffic to the app
+
+Safety Rules & Important Notes
+═══════════════════════════════════════════════════════════════════════════════
+
+Environment Files:
+- .env.local         → Local dev only (NOT in git, create from .env.example)
+- .env.example       → Template with placeholders (IN git, safe to commit)
+- .env (on VPS)      → Production secrets in /srv/yggdrasil/production (NEVER in git)
+
+Git Workflow:
+- dev branch         → Active development, test here first
+- main branch        → Production code, triggers auto-deploy to VPS
+- feature/* branches → Optional for larger features, merge to dev when ready
+
+Docker Files:
+- docker-compose.dev.yml   → Local development (IN git)
+- Dockerfile               → Builds app image (IN git)
+- docker-compose.yml (VPS) → Production setup in /srv/yggdrasil/production (NOT in git)
+
+VPS Directories (DO NOT modify these from local):
+- /srv/yggdrasil/yggdrasil    → Git repo managed by GitHub Actions
+- /srv/yggdrasil/production   → Production runtime, docker-compose.yml, secrets
+- /srv/yggdrasil/deploy.sh    → Deployment script
+
+Never Commit:
+- Real secrets, API keys, database passwords
+- .env, .env.local, .env.production
+- letsencrypt/ directory
+- node_modules/
+- .next/ build output
+
+Troubleshooting
+═══════════════════════════════════════════════════════════════════════════════
+
+If local dev fails:
+1. Check logs:
+   docker-compose -f docker-compose.dev.yml logs
+   # OR without Docker:
+   npm run dev (see terminal output)
+
+2. Rebuild from scratch:
+   docker-compose -f docker-compose.dev.yml down
+   docker-compose -f docker-compose.dev.yml up --build --force-recreate
+
+3. Clear Next.js cache:
+   rm -rf .next
+   npm run dev
+
+4. Check your .env.local has required variables
+
+If VPS deploy fails:
+- Check GitHub Actions logs in the repo
+- SSH to VPS and check:
+  - /srv/yggdrasil/deploy.sh script
+  - GitHub runner service: sudo systemctl status actions.runner.*
+  - Production logs: cd /srv/yggdrasil/production && docker-compose logs
+  - Permissions: ensure github-runner user can access /srv/yggdrasil
+
+Port conflicts:
+- Local: Ensure port 3000 is free
+- VPS: Traefik handles external routing, internal ports managed by docker-compose
+
+Quick Commands Reference
+═══════════════════════════════════════════════════════════════════════════════
+
+# Start local dev (Docker)
+docker-compose -f docker-compose.dev.yml up
+
+# Start local dev (npm)
+npm run dev
+
+# Build production image locally (test before deploy)
+docker build -t yggdrasil:test .
+
+# Check what will be deployed
+git log origin/main..HEAD
+
+# View production status (on VPS, via SSH)
+cd /srv/yggdrasil/production
+docker-compose ps
+docker-compose logs yggdrasil
+
+═══════════════════════════════════════════════════════════════════════════════
+
+That's it! Hand this file to a new developer or Copilot chat for quick setup.
+For VPS-specific deployment details, see the deploy.sh script and workflow file.
